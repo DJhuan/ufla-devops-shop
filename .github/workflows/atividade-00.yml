@@ -47,12 +47,24 @@ jobs:
               f => f.filename.toLowerCase() === alvo.toLowerCase()
             );
 
+            // Le o arquivo pela API autenticada (contents_url ja aponta para o
+            // repo e o commit da PR). Buscar o raw_url por fetch anonimo falha
+            // em repositorio privado --- e falhar aqui nao pode passar batido.
             async function conteudo(file) {
-              if (!file || !file.raw_url) return null;
+              if (!file || !file.contents_url) return null;
               try {
-                const r = await fetch(file.raw_url);
-                return r.ok ? await r.text() : null;
+                const res = await github.request(file.contents_url);
+                const d = res.data;
+                if (d && d.content) {
+                  return Buffer.from(d.content, 'base64').toString('utf8');
+                }
+                if (d && d.download_url) {
+                  const r = await fetch(d.download_url);
+                  return r.ok ? await r.text() : null;
+                }
+                return null;
               } catch (e) {
+                core.warning(`Falha ao ler ${file.filename}: ${e.message}`);
                 return null;
               }
             }
@@ -149,7 +161,10 @@ jobs:
                      'de novo e atualize o `ambiente.txt`.');
               }
             } else if (fAmbiente) {
-              avisos.push('Nao consegui ler o conteudo do `ambiente.txt`.');
+              erro('Ambiente verificado',
+                   'nao consegui ler o conteudo do `ambiente.txt`. O arquivo esta ' +
+                   'vazio, e binario, ou grande demais? Ele deve ser a saida em ' +
+                   'texto do `check-ambiente.sh`.');
             }
 
             // ---------------------------------------------------------------
@@ -217,7 +232,9 @@ jobs:
                 );
               }
             } else if (fAluno) {
-              avisos.push('Nao consegui ler o conteudo de `' + arquivoAluno + '`.');
+              erro('Conteudo da apresentacao',
+                   'nao consegui ler o conteudo de `' + arquivoAluno + '`. O ' +
+                   'arquivo esta vazio ou nao e texto?');
             }
 
             // ---------------------------------------------------------------
