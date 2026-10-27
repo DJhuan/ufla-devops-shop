@@ -88,9 +88,14 @@ jobs:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: https://sonarcloud.io
 
-      - name: Inspect report metadata
+      - name: Inspect and check Quality Gate
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         run: |
-          cat .scannerwork/report-task.txt || true
+          cat .scannerwork/report-task.txt
+          ceTaskUrl=$(sed -n 's/^ceTaskUrl=\(.*\)/\1/p' .scannerwork/report-task.txt)
+          echo "Testing curl to $ceTaskUrl..."
+          curl -v --user "${SONAR_TOKEN}:" "$ceTaskUrl" || true
 
       - name: SonarCloud Quality Gate
         uses: SonarSource/sonarqube-quality-gate-action@v1.1.0
