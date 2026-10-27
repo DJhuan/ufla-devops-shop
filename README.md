@@ -1,78 +1,87 @@
-# Trabalho Prático — Pipeline DevSecOps com GitHub Actions
+# Trabalho Prático DevSecOps com GitHub Actions
 
-Este repositório contém a implementação do pipeline de integração e entrega contínuas com foco em segurança (DevSecOps e *shift-left security*) para a aplicação `ufla-devops-shop`.
-
-O pipeline é executado via **GitHub Actions** em Pull Requests direcionados para a branch principal (`tp-main`) e em pushes diretos nela, garantindo que nenhum código vulnerável, segredo vazado ou imagem insegura seja integrado ou publicado.
+A branch principal de trabalho é a `tp-main` e o desenvolvimento está centralizado na `tp-dev`.
 
 ---
 
-## 1. Ferramentas Integradas
+## 1. Ferramentas Integradas e Workflows
 
-| Ferramenta | Tipo | Função no Pipeline |
-| :--- | :--- | :--- |
-| **Gitleaks** | Secret Detection | Analisa o histórico e commits em busca de segredos, tokens, senhas ou credenciais expostas. |
-| **Pytest + Coverage** | Testes & Cobertura | Executa a suíte de testes unitários da aplicação e gera o relatório `coverage.xml`. |
-| **SonarCloud** | SAST & Quality Gate | Executa análise estática de código e segurança, validando métricas e Quality Gate sobre o código novo. |
-| **Trivy (FS)** | SCA (Dependências) | Varre arquivos de configuração e dependências do repositório (`requirements.txt`, etc.). |
-| **Trivy (Image)** | Container Security | Varre a imagem Docker construída em busca de vulnerabilidades no sistema operacional base e bibliotecas empacotadas. |
-| **Syft** | Geração de SBOM | Cria o inventário de componentes de software (Software Bill of Materials) da imagem Docker em formato SPDX JSON. |
-| **Docker Hub** | Container Registry | Armazena e distribui a imagem validada (`djhuan/ufla-devops-shop`), condicionada à aprovação de todos os gates. |
+Arquivo criado: [`.github/workflows/devsecops.yml`](file:///home/jhuan/Documentos/P8/devops/ufla-devops-shop/.github/workflows/devsecops.yml)
 
----
+### Requisito 1 — Gitleaks: detecção de segredos
+- **Ação**: Análise de histórico e commits utilizando `gitleaks/gitleaks-action@v2`.
+- **Comportamento**: Bloqueia imediatamente o pipeline caso tokens, senhas ou chaves sejam identificados.
+- **Resultado**: ✅ Execução validada e aprovada nos commits e Pull Requests.
 
-## 2. Verificações do Pipeline
+### Requisito 2 — SonarCloud: análise estática (SAST)
+- **Ação**: Integração do SonarCloud utilizando `SonarSource/sonarqube-scan-action@v6.0.0` e validação com Quality Gate (`sonar-project.properties`).
+- **Comportamento**: Falha a verificação se a qualidade e cobertura no código novo não atenderem aos critérios definidos.
+- **Resultado**: ✅ Análise executada com sucesso e Quality Gate consultado e aprovado.
 
-O workflow [`.github/workflows/devsecops.yml`](.github/workflows/devsecops.yml) orquestra as seguintes verificações:
+### Requisito 3 — Trivy: análise de dependências e imagens
+- **Ação**: Scan de dependências do código (`fs`) e da imagem Docker construída (`image`) via `aquasecurity/trivy-action`.
+- **Comportamento**:
+  - `CRITICAL` e `HIGH` com correção disponível (`ignore-unfixed: true` e `exit-code: 1`): **Bloqueante**.
+  - `LOW` e `MEDIUM` (`exit-code: 0`): **Não-bloqueante** (geração de log e auditoria).
+- **Resultado**: ✅ Ambos os níveis de severidade devidamente categorizados e funcionando.
 
-1. **Gitleaks (Secret Detection)**:
-   - Executa `gitleaks/gitleaks-action@v2` com profundidade total (`fetch-depth: 0`).
-   - Verifica commits introduzidos em Pull Requests e pushes.
-2. **Build, Testes e Cobertura**:
-   - Configura o runtime Python 3.12 e instala dependências de desenvolvimento (`requirements-dev.txt`).
-   - Roda `pytest tests/ --cov=app --cov-report=xml` e publica o artefato `coverage.xml`.
-3. **SonarCloud (SAST e Quality Gate)**:
-   - Executa a análise estática via `SonarSource/sonarqube-scan-action@v6.0.0` consumindo os relatórios de cobertura.
-   - Aguarda o processamento no SonarCloud e consulta o status do Quality Gate para o projeto `DJhuan_ufla-devops-shop`.
-4. **Trivy (Varredura de Dependências - Filesystem)**:
-   - Analisa o repositório em dois níveis de severidade: auditoria e aplicação de políticas de corte.
-5. **Docker Build, Trivy Image Scan e Geração de SBOM**:
-   - Constrói a imagem Docker multi-stage localmente.
-   - Analisa a imagem construída com o Trivy.
-   - Gera o arquivo SBOM `sbom.spdx.json` utilizando o Syft (`anchore/sbom-action@v0`).
-   - Publica o arquivo como artefato da execução (`actions/upload-artifact@v4`) com o nome `sbom-docker-image`.
-6. **Publicação no Registry (Docker Hub)**:
-   - Disparado exclusivamente em eventos de `push` na branch `tp-main`.
-   - Requer como dependência explícita o sucesso de todos os jobs anteriores (`gitleaks`, `sonarcloud`, `trivy-fs`, `docker-security-sbom`).
+### Requisito 4 — Syft: geração de SBOM
+- **Ação**: Geração do Software Bill of Materials (SBOM) da imagem Docker utilizando `anchore/sbom-action@v0` no formato padrão `spdx-json`.
+- **Publicação**: Artefato `sbom-docker-image` publicado nos artifacts da execução via `actions/upload-artifact@v4`.
+- **Resultado**: ✅ Artefato `sbom-docker-image` gerado e disponível para download.
+
+### Publicação da Imagem Docker
+- **Ação**: Build e push para o Docker Hub (`djhuan/ufla-devops-shop`) utilizando `docker/build-push-action@v6`.
+- **Regra**: Somente dispara em push na branch `tp-main` e condicionada ao sucesso de **todos** os jobs anteriores (`gitleaks`, `sonarcloud`, `trivy-fs`, `docker-security-sbom`).
+- **Resultado**: ✅ Execução bem-sucedida e tags enviadas para o Docker Hub.
 
 ---
 
-## 3. Regras de Bloqueio
+## 2. Requisito 5 — Demonstração do Bloqueio e da Correção de CVE
 
-O pipeline aplica o conceito de *shift-left security*, interrompendo o ciclo de integração nas seguintes condições:
+Para comprovar que a segurança não é passiva e bloqueia efetivamente o merge:
 
-- **Detecção de Segredos**: Qualquer ocorrência de chave privada, token de API, senha ou credencial identificada pelo Gitleaks encerra o job imediatamente com erro (`exit code 1`).
-- **Reprovação no Quality Gate (SonarCloud)**: Caso o código introduzido viole as políticas de qualidade ou segurança definidas no SonarCloud (status `ERROR`), a esteira é bloqueada.
-- **Vulnerabilidades CRITICAL e HIGH com Correção (Trivy)**:
-  - Dependências (`scan-type: fs`) ou pacotes da imagem (`scan-type: image`) com severidade **CRITICAL** ou **HIGH** que possuam correção disponível (`ignore-unfixed: true`) acionam bloqueio mandatário (`exit-code: 1`).
-- **Auditoria de LOW e MEDIUM (Trivy)**:
-  - Vulnerabilidades de severidade **LOW** e **MEDIUM** são registradas detalhadamente nos logs para fins de conformidade e auditoria, sem bloquear a execução (`exit-code: 0`).
-- **Gate de Publicação da Imagem**: A publicação da imagem final para o Docker Hub é bloqueada se qualquer uma das verificações acima falhar.
+1. **Introdução da vulnerabilidade**:
+   - Criada a branch `test/cve-block` a partir de `tp-main`.
+   - Adicionada a dependência vulnerável `urllib3==1.26.4` com CVE conhecida e correção disponível ([`CVE-2021-33503`](https://avd.aquasec.com/nvd/cve-2021-33503)).
+   - Aberto o Pull Request [#1](https://github.com/DJhuan/ufla-devops-shop/pull/1).
+
+2. **Comprovação do Bloqueio**:
+   - O pipeline falhou no job `Trivy (Dependency Scan)` e no job `Docker Build, Trivy Image Scan & Syft SBOM`.
+   - **Trecho do relatório Trivy**:
+     ```text
+     requirements.txt (pip)
+     Total: 8 (HIGH: 8, CRITICAL: 0)
+
+     ┌─────────┬────────────────┬──────────┬────────┬───────────────────┬────────────────┬─────────────────────────────────────────────────────────────┐
+     │ Library │ Vulnerability  │ Severity │ Status │ Installed Version │ Fixed Version  │                            Title                            │
+     ├─────────┼────────────────┼──────────┼────────┼───────────────────┼────────────────┼─────────────────────────────────────────────────────────────┤
+     │ urllib3 │ CVE-2021-33503 │ HIGH     │ fixed  │ 1.26.4            │ 1.26.5         │ python-urllib3: ReDoS in the parsing of authority part of   │
+     │         │                │          │        │                   │                │ URL                                                         │
+     │         │                │          │        │                   │                │ https://avd.aquasec.com/nvd/cve-2021-33503                  │
+     └─────────┴────────────────┴──────────┴────────┴───────────────────┴────────────────┴─────────────────────────────────────────────────────────────┘
+     Process completed with exit code 1.
+     ```
+   - O Pull Request foi bloqueado, impedindo a publicação em produção.
+
+3. **Correção e Comprovação do Sucesso**:
+   - A dependência vulnerável foi removida no commit `954d7bf`.
+   - O Pull Request [#1](https://github.com/DJhuan/ufla-devops-shop/pull/1) foi atualizado automaticamente.
+   - Todos os checks do pipeline de segurança passaram com status verde:
+     - `Gitleaks (Secret Detection)`: ✅ SUCCESS
+     - `Tests & Coverage`: ✅ SUCCESS
+     - `Trivy (Dependency Scan)`: ✅ SUCCESS
+     - `SonarCloud SAST & Quality Gate`: ✅ SUCCESS
+     - `Docker Build, Trivy Image Scan & Syft SBOM`: ✅ SUCCESS (SBOM publicado)
 
 ---
 
-## 4. Estrutura do Repositório
+## 3. Links e Entregáveis
 
-```text
-ufla-devops-shop/
-├── .github/
-│   └── workflows/
-│       └── devsecops.yml       # Definição completa do pipeline DevSecOps
-├── app/                        # Código-fonte da API (FastAPI)
-├── static/                     # Arquivos estáticos do frontend
-├── tests/                      # Testes automatizados (pytest)
-├── Dockerfile                  # Construção multi-stage da imagem da aplicação
-├── sonar-project.properties    # Configurações do projeto e coverage para o SonarCloud
-├── requirements.txt            # Dependências de execução
-├── requirements-dev.txt        # Dependências de desenvolvimento, lint e testes
-└── README.md                   # Documentação do projeto e pipeline
-```
+- **Imagens de evidências**: [Evidências](./docs/evidences.md)
+- **Branch Principal do TP**: [`tp-main`](https://github.com/DJhuan/ufla-devops-shop/tree/tp-main)
+- **Branch de Desenvolvimento**: [`tp-dev`](https://github.com/DJhuan/ufla-devops-shop/tree/tp-dev)
+- **Pull Request de Demonstração (Bloqueio e Correção)**: [PR #1](https://github.com/DJhuan/ufla-devops-shop/pull/1)
+- **Execução Aprovada (Push em `tp-main` com Docker Hub)**: [Run 40428016907](https://github.com/DJhuan/ufla-devops-shop/actions/runs/40428016907)
+- **Execução Bloqueada por CVE**: [Run 40428682616](https://github.com/DJhuan/ufla-devops-shop/actions/runs/40428682616)
+- **Execução Aprovada após correção da CVE**: [Run 40429028895](https://github.com/DJhuan/ufla-devops-shop/actions/runs/40429028895)
