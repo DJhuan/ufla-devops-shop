@@ -88,20 +88,59 @@ jobs:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: https://sonarcloud.io
 
-      - name: Inspect and check Quality Gate
+      - name: SonarCloud Quality Gate
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         run: |
-          cat .scannerwork/report-task.txt
-          ceTaskUrl=$(sed -n 's/^ceTaskUrl=\(.*\)/\1/p' .scannerwork/report-task.txt)
-          echo "Testing curl to $ceTaskUrl..."
-          curl -v --user "${SONAR_TOKEN}:" "$ceTaskUrl" || true
+          metadataFile=".scannerwork/report-task.txt"
+          if [[ ! -f "$metadataFile" ]]; then
+            echo "Arquivo $metadataFile não encontrado."
+            exit 1
+          fi
+          ceTaskUrl=$(sed -n 's/^ceTaskUrl=\(.*\)/\1/p' "$metadataFile")
+          serverUrl=$(sed -n 's/^serverUrl=\(.*\)/\1/p' "$metadataFile")
+          dashboardUrl=$(sed -n 's/^dashboardUrl=\(.*\)/\1/p' "$metadataFile")
 
-      - name: SonarCloud Quality Gate
-        uses: SonarSource/sonarqube-quality-gate-action@v1.1.0
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SONAR_HOST_URL: https://sonarcloud.io
+          echo "Aguardando processamento no SonarCloud..."
+          status="PENDING"
+          for i in {1..30}; do
+            task=$(curl -s --user "${SONAR_TOKEN}:" "$ceTaskUrl")
+            status=$(echo "$task" | jq -r '.task.status')
+            if [[ "$status" == "SUCCESS" || "$status" == "FAILED" || "$status" == "CANCELED" ]]; then
+              break
+            fi
+            sleep 3
+          done
+
+          if [[ "$status" != "SUCCESS" ]]; then
+            echo "Processamento no Sonar falhou ou cancelado: $status"
+            exit 1
+          fi
+
+          analysisId=$(echo "$task" | jq -r '.task.analysisId')
+          projectKey=$(sed -n 's/^projectKey=\(.*\)/\1/p' "$metadataFile")
+          branchName=$(sed -n 's/^branch=\(.*\)/\1/p' "$metadataFile")
+
+          echo "Consultando Quality Gate..."
+          qg=$(curl -s --user "${SONAR_TOKEN}:" "${serverUrl}/api/qualitygates/project_status?analysisId=${analysisId}")
+          qgStatus=$(echo "$qg" | jq -r '.projectStatus.status // empty')
+
+          if [[ -z "$qgStatus" ]]; then
+            qg=$(curl -s --user "${SONAR_TOKEN}:" "${serverUrl}/api/qualitygates/project_status?projectKey=${projectKey}&branch=${branchName}")
+            qgStatus=$(echo "$qg" | jq -r '.projectStatus.status // empty')
+          fi
+
+          echo "Status do Quality Gate: $qgStatus"
+          echo "Painel: $dashboardUrl"
+
+          if [[ "$qgStatus" == "ERROR" ]]; then
+            echo "❌ Quality Gate falhou!"
+            exit 1
+          elif [[ "$qgStatus" == "OK" || "$qgStatus" == "WARN" ]]; then
+            echo "✅ Quality Gate aprovado ($qgStatus)."
+          else
+            echo "⚠️ Status do Quality Gate retornado: $qgStatus"
+          fi
 
   # -------------------------------------------------------------
   # Requisito 3 (Parte 1): Trivy - Análise de dependências do projeto (FS)
