@@ -100,12 +100,16 @@ jobs:
           ceTaskUrl=$(sed -n 's/^ceTaskUrl=\(.*\)/\1/p' "$metadataFile")
           serverUrl=$(sed -n 's/^serverUrl=\(.*\)/\1/p' "$metadataFile")
           dashboardUrl=$(sed -n 's/^dashboardUrl=\(.*\)/\1/p' "$metadataFile")
+          projectKey=$(sed -n 's/^projectKey=\(.*\)/\1/p' "$metadataFile")
+          branchName=$(sed -n 's/^branch=\(.*\)/\1/p' "$metadataFile")
+
+          AUTH_HEADER="Authorization: Bearer ${SONAR_TOKEN}"
 
           echo "Aguardando processamento no SonarCloud..."
           status="PENDING"
           for i in {1..30}; do
-            task=$(curl -s --user "${SONAR_TOKEN}:" "$ceTaskUrl")
-            status=$(echo "$task" | jq -r '.task.status')
+            task=$(curl -s -H "$AUTH_HEADER" "$ceTaskUrl")
+            status=$(echo "$task" | jq -r '.task.status // empty')
             if [[ "$status" == "SUCCESS" || "$status" == "FAILED" || "$status" == "CANCELED" ]]; then
               break
             fi
@@ -117,19 +121,18 @@ jobs:
             exit 1
           fi
 
-          analysisId=$(echo "$task" | jq -r '.task.analysisId')
-          projectKey=$(sed -n 's/^projectKey=\(.*\)/\1/p' "$metadataFile")
-          branchName=$(sed -n 's/^branch=\(.*\)/\1/p' "$metadataFile")
+          analysisId=$(echo "$task" | jq -r '.task.analysisId // empty')
 
           echo "Consultando Quality Gate..."
-          qg=$(curl -s --user "${SONAR_TOKEN}:" "${serverUrl}/api/qualitygates/project_status?analysisId=${analysisId}")
+          qg=$(curl -s -H "$AUTH_HEADER" "${serverUrl}/api/qualitygates/project_status?analysisId=${analysisId}")
           qgStatus=$(echo "$qg" | jq -r '.projectStatus.status // empty')
 
           if [[ -z "$qgStatus" ]]; then
-            qg=$(curl -s --user "${SONAR_TOKEN}:" "${serverUrl}/api/qualitygates/project_status?projectKey=${projectKey}&branch=${branchName}")
+            qg=$(curl -s -H "$AUTH_HEADER" "${serverUrl}/api/qualitygates/project_status?projectKey=${projectKey}&branch=${branchName}")
             qgStatus=$(echo "$qg" | jq -r '.projectStatus.status // empty')
           fi
 
+          echo "Resposta Quality Gate: $qg"
           echo "Status do Quality Gate: $qgStatus"
           echo "Painel: $dashboardUrl"
 
@@ -139,7 +142,7 @@ jobs:
           elif [[ "$qgStatus" == "OK" || "$qgStatus" == "WARN" ]]; then
             echo "✅ Quality Gate aprovado ($qgStatus)."
           else
-            echo "⚠️ Status do Quality Gate retornado: $qgStatus"
+            echo "⚠️ Quality Gate status: $qgStatus"
           fi
 
   # -------------------------------------------------------------
