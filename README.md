@@ -143,6 +143,29 @@ descartada no cálculo final, sem necessidade de justificativa.
 
 ---
 
+## Trabalho Prático — Pipeline DevSecOps com GitHub Actions
+
+Este repositório implementa um pipeline de integração contínua com foco em segurança (DevSecOps e *shift-left security*), automatizando a identificação de vulnerabilidades e vazamentos antes da integração no branch principal (`tp-main`).
+
+### 1. Ferramentas Integradas
+
+- **Gitleaks**: Análise do histórico e commits em busca de chaves de API, senhas, tokens ou outros segredos vazados.
+- **SonarCloud**: Análise estática de segurança e qualidade de código (SAST) integrada ao Quality Gate voltado a código novo.
+- **Trivy**: Varredura de vulnerabilidades tanto nas dependências do projeto (filesystem) quanto na imagem Docker construída.
+- **Syft**: Geração automatizada do Software Bill of Materials (SBOM) no formato padrão SPDX JSON, publicado como artefato da execução.
+- **Docker Hub**: Publicação da imagem de produção (`djhuan/ufla-devops-shop`), condicionada à aprovação em todos os testes e gates de segurança.
+
+### 2. Regras de Bloqueio do Pipeline
+
+- **Detecção de Segredos**: Qualquer padrão identificado pelo Gitleaks falha a verificação imediatamente.
+- **SonarCloud Quality Gate**: Se a cobertura mínima ou limites de confiabilidade/segurança não forem atingidos em código novo, o gate é reprovado.
+- **Vulnerabilidades de Dependências e Imagem (Trivy)**:
+  - Vulnerabilidades **CRITICAL** e **HIGH** com correção disponível (`ignore-unfixed: true`) bloqueiam o pipeline (exit-code 1).
+  - Vulnerabilidades **LOW** e **MEDIUM** são registradas em relatório detalhado de auditoria sem interromper a execução.
+- **Proteção e Publicação**: A imagem Docker só é gerada e publicada para a branch principal (`tp-main`) se todos os jobs de segurança e testes forem bem-sucedidos.
+
+---
+
 ## Onde pedir ajuda
 
 No **fórum da atividade**, no campus virtual. Pergunta pública gera resposta que

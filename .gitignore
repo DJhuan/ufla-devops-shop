@@ -51,3 +51,4 @@ kubeconfig
 # Dados da Atividade 2 -- 87 MB de access.log. NAO versione.
 # Traga o arquivo com ./scripts/baixar-dados.sh
 dados/
+*.spdx.json
